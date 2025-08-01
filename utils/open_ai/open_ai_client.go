@@ -1,6 +1,7 @@
 package open_ai
 
 import (
+	"QuizPals-Server/config"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -218,8 +219,12 @@ func (oc *OpenAIClient) addAssistantMessage(content string) {
 }
 
 func Demo() {
-	api := "sk-f80f42656a5642e4bc16733fbad78e8f"
-	url := "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	app_config := config.GetConfig()
+
+	open_ai := app_config.OpenAI
+
+	api := open_ai.APIKey
+	url := open_ai.BaseURL
 
 	client := NewOpenAIClient(api, url)
 	if err := client.StartSession(); err != nil {
