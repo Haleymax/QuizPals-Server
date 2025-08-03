@@ -1,11 +1,11 @@
 package open_ai
 
 import (
-	"QuizPals-Server/config"
 	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -49,36 +49,22 @@ func NewOpenAIClient(apiKey, baseURL string) *OpenAIClient {
 }
 
 // StartSession 开始一个新的会话
-func (oc *OpenAIClient) StartSession() error {
-	fmt.Println("欢迎使用AI出题助手")
-	fmt.Println("请输入您要分析的文本内容（输入'exit'退出）：")
+func (oc *OpenAIClient) StartSession(content string) ([]Question, error) {
+	log.Println("Use AI question setting assistant")
 
-	for {
-		userInput, err := oc.readUserInput()
-		if err != nil {
-			return fmt.Errorf("读取输入失败: %v", err)
-		}
-
-		if strings.ToLower(userInput) == "exit" {
-			fmt.Println("退出AI会话")
-			return nil
-		}
-
-		// 第一步：提取知识点
-		knowledgePoints, err := oc.extractKnowledgePoints(userInput)
-		if err != nil {
-			return fmt.Errorf("提取知识点失败: %v", err)
-		}
-
-		// 第二步：生成问题
-		questions, err := oc.generateQuestions(knowledgePoints)
-		if err != nil {
-			return fmt.Errorf("生成问题失败: %v", err)
-		}
-
-		// 显示生成的问题
-		oc.displayQuestions(questions)
+	// 第一步：提取知识点
+	knowledgePoints, err := oc.extractKnowledgePoints(content)
+	if err != nil {
+		return []Question{}, fmt.Errorf("failed to extract knowledge points: %v", err)
 	}
+
+	// 第二步：生成问题
+	questions, err := oc.generateQuestions(knowledgePoints)
+	if err != nil {
+		return []Question{}, fmt.Errorf("generation problem failed: %v", err)
+	}
+
+	return questions, nil
 }
 
 // readUserInput 读取用户输入
@@ -102,20 +88,20 @@ func (oc *OpenAIClient) extractKnowledgePoints(text string) ([]string, error) {
 	}
 
 	// 调试：打印原始响应
-	fmt.Printf("原始响应: %s\n", response)
+	log.Printf("Response: %s\n", response)
 
 	// 尝试清理响应中的非JSON内容
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 {
-		return nil, fmt.Errorf("响应中未找到有效的JSON数组")
+		return nil, fmt.Errorf("no valid JSON response")
 	}
 
 	cleanResponse := response[jsonStart : jsonEnd+1]
 
 	var knowledgePoints []string
 	if err := json.Unmarshal([]byte(cleanResponse), &knowledgePoints); err != nil {
-		return nil, fmt.Errorf("解析知识点失败: %v\n原始响应: %s", err, response)
+		return nil, fmt.Errorf("failed to parse knowledge points: %v\nresponse: %s", err, response)
 	}
 
 	return knowledgePoints, nil
@@ -128,7 +114,7 @@ func (oc *OpenAIClient) generateQuestions(knowledgePoints []string) ([]Question,
 
 	knowledgeStr, err := json.Marshal(knowledgePoints)
 	if err != nil {
-		return nil, fmt.Errorf("序列化知识点失败: %v", err)
+		return nil, fmt.Errorf("failed to serialize knowledge points: %v", err)
 	}
 	oc.addUserMessage(string(knowledgeStr))
 
@@ -138,20 +124,20 @@ func (oc *OpenAIClient) generateQuestions(knowledgePoints []string) ([]Question,
 	}
 
 	// 调试：打印原始响应
-	fmt.Printf("原始响应: %s\n", response)
+	log.Printf("Response: %s\n", response)
 
 	// 尝试清理响应中的非JSON内容
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 {
-		return nil, fmt.Errorf("响应中未找到有效的JSON数组")
+		return nil, fmt.Errorf("no valid JSON response")
 	}
 
 	cleanResponse := response[jsonStart : jsonEnd+1]
 
 	var questions []Question
 	if err := json.Unmarshal([]byte(cleanResponse), &questions); err != nil {
-		return nil, fmt.Errorf("解析问题失败: %v\n原始响应: %s", err, response)
+		return nil, fmt.Errorf("failed to parse knowledge question : %v\nresponse: %s", err, response)
 	}
 
 	return questions, nil
@@ -167,29 +153,16 @@ func (oc *OpenAIClient) getAIResponse() (string, error) {
 		},
 	)
 	if err != nil {
-		return "", fmt.Errorf("AI请求失败: %v", err)
+		return "", fmt.Errorf("AI question failed: %v", err)
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("未收到AI响应")
+		return "", fmt.Errorf("no AI response received")
 	}
 
 	assistantReply := resp.Choices[0].Message.Content
 	oc.addAssistantMessage(assistantReply)
 	return assistantReply, nil
-}
-
-// displayQuestions 显示生成的问题
-func (oc *OpenAIClient) displayQuestions(questions []Question) {
-	fmt.Println("\n生成的问题:")
-	for i, q := range questions {
-		fmt.Printf("\n问题 %d: %s\n", i+1, q.Question)
-		for _, opt := range q.Options {
-			fmt.Printf("%s. %s\n", opt.Label, opt.Text)
-		}
-		fmt.Printf("正确答案: %s\n", q.Answer)
-	}
-	fmt.Println()
 }
 
 // 辅助方法
@@ -216,18 +189,4 @@ func (oc *OpenAIClient) addAssistantMessage(content string) {
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: content,
 	})
-}
-
-func Demo() {
-	app_config := config.GetConfig()
-
-	open_ai := app_config.OpenAI
-
-	api := open_ai.APIKey
-	url := open_ai.BaseURL
-
-	client := NewOpenAIClient(api, url)
-	if err := client.StartSession(); err != nil {
-		fmt.Printf("发生错误: %v\n", err)
-	}
 }
